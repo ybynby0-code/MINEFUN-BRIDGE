@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#090d18"><title>MINEFUN BRIDGE</title>
+<style>
+:root{color-scheme:dark;--bg:#090d18;--panel:#111a2b;--line:#26334b;--muted:#8d9bb3;--text:#edf3ff;--accent:#6d8cff;--green:#4adea5;--red:#ff7185}
+*{box-sizing:border-box}body{margin:0;background:radial-gradient(ellipse at 80% -10%,#1b2b55 0,transparent 45%),var(--bg);color:var(--text);font:15px system-ui,-apple-system,sans-serif;min-height:100vh}
+header{padding:25px 18px 17px;border-bottom:1px solid var(--line);position:sticky;top:0;background:#090d18eF;backdrop-filter:blur(16px);z-index:3}
+.brand{font-size:12px;letter-spacing:.22em;color:#9db1ff;font-weight:800}.title{font-size:25px;font-weight:850;margin:5px 0}.sub{font-size:12px;color:var(--muted)}
+main{max-width:850px;margin:auto;padding:16px 14px 60px}.card{background:linear-gradient(145deg,#141f33,#0f1727);border:1px solid var(--line);border-radius:17px;padding:16px;margin:0 0 14px;box-shadow:0 10px 35px #0002}
+.row{display:flex;align-items:center;justify-content:space-between;gap:10px}.label{font-size:12px;color:#aab8d0;font-weight:700;letter-spacing:.04em;margin:0 0 8px}
+input,textarea,button{font:inherit}input,textarea{width:100%;border:1px solid #33425f;background:#0a1221;color:var(--text);border-radius:11px;padding:12px;outline:none}input:focus,textarea:focus{border-color:var(--accent)}textarea{min-height:125px;resize:vertical;font-family:ui-monospace,monospace;font-size:12px}
+button{border:0;border-radius:11px;padding:11px 15px;background:var(--accent);color:white;font-weight:750;cursor:pointer}button.secondary{background:#24324d}button:disabled{opacity:.5;cursor:wait}
+.status{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--muted)}.dot{width:8px;height:8px;border-radius:50%;background:#64748b}.dot.ok{background:var(--green);box-shadow:0 0 12px #4adea5}.dot.bad{background:var(--red)}
+.tools{display:grid;gap:8px;margin-top:12px}.tool{width:100%;text-align:left;background:#0b1424;border:1px solid #263650;padding:13px;border-radius:12px}.tool strong{display:block;overflow-wrap:anywhere}.tool small{display:block;color:var(--muted);margin-top:5px;line-height:1.45}.tool.active{border-color:var(--accent);background:#182644}
+.hidden{display:none}.hint{color:var(--muted);font-size:12px;line-height:1.6}.result{white-space:pre-wrap;overflow-wrap:anywhere;background:#080f1c;border:1px solid var(--line);border-radius:12px;padding:13px;max-height:360px;overflow:auto;font:12px/1.6 ui-monospace,monospace}.spacer{height:12px}.danger{color:#ff9aa8}.count{font-size:12px;color:var(--muted)}
+@media(min-width:650px){main{padding-top:24px}.tools{grid-template-columns:1fr 1fr}}
+</style>
+</head>
+<body>
+<header><div class="brand">MINEFUN / DEVELOPER TOOLS</div><div class="title">MINEFUN BRIDGE</div><div class="sub">Minefun MCP 원격 제어 패널 · 모바일 최적화</div></header>
+<main>
+<section class="card">
+ <div class="row"><div class="label">01 / 연결 설정</div><div class="status"><i id="dot" class="dot"></i><span id="status">연결되지 않음</span></div></div>
+ <div class="label">Cloudflare Worker 주소</div><input id="endpoint" placeholder="https://your-worker.workers.dev/mcp" autocomplete="url">
+ <div class="spacer"></div><div class="label">브리지 접근 키</div><input id="key" type="password" placeholder="Cloudflare BRIDGE_ACCESS_KEY" autocomplete="off">
+ <div class="spacer"></div><div class="row"><button id="connect">연결 및 도구 불러오기</button><button class="secondary" id="forget">키 지우기</button></div>
+ <p class="hint">접근 키는 이 브라우저 탭의 세션에만 보관됩니다. Minefun 원본 토큰은 이 화면에 입력하지 마세요.</p>
+</section>
+<section class="card">
+ <div class="row"><div class="label">02 / 사용 가능한 MCP 도구</div><span id="toolCount" class="count">0개</span></div>
+ <div id="tools" class="tools"><p class="hint">먼저 Worker를 배포하고 연결하세요.</p></div>
+</section>
+<section id="callCard" class="card hidden">
+ <div class="label">03 / 도구 실행</div><div id="selectedName" style="font-weight:800;margin-bottom:10px">도구 선택</div>
+ <div class="label">Arguments (JSON)</div><textarea id="args" spellcheck="false">{}</textarea>
+ <p class="hint">선택한 도구의 입력값에 맞게 JSON을 수정한 뒤 실행하세요. 게임 월드에 실제 변경이 적용될 수 있습니다.</p>
+ <button id="run">도구 실행</button>
+</section>
+<section class="card"><div class="row"><div class="label">04 / 실행 결과</div><button class="secondary" id="clear">지우기</button></div><pre id="output" class="result">아직 실행 결과가 없습니다.</pre></section>
+</main>
+<script>
+const $=id=>document.getElementById(id);let tools=[],selected=null,sessionId=null,rpcId=0,initialized=false;
+$("endpoint").value=localStorage.getItem("mf_endpoint")||"";
+$("key").value=sessionStorage.getItem("mf_key")||"";
+function status(s,kind=""){ $("status").textContent=s;$("dot").className="dot "+kind; }
+function output(v){$("output").textContent=typeof v==="string"?v:JSON.stringify(v,null,2);}
+async function rpc(method,params={},notify=false){
+ const id=++rpcId;const body={jsonrpc:"2.0",method,params};if(!notify)body.id=id;
+ const headers={"Content-Type":"application/json","Accept":"application/json, text/event-stream","Authorization":"Bearer "+$("key").value};
+ if(sessionId)headers["Mcp-Session-Id"]=sessionId;
+ const res=await fetch($("endpoint").value.trim(),{method:"POST",headers,body:JSON.stringify(body)});
+ const sid=res.headers.get("Mcp-Session-Id");if(sid)sessionId=sid;
+ const text=await res.text();if(!res.ok)throw new Error("HTTP "+res.status+": "+text.slice(0,1000));
+ if(notify||res.status===202||!text.trim())return null;
+ if(text.includes("data:")){const data=text.split(/\r?\n/).filter(x=>x.startsWith("data:")).map(x=>x.slice(5).trim()).filter(Boolean).pop();return data?JSON.parse(data):null;}
+ return JSON.parse(text);
+}
+async function connect(){
+ $("connect").disabled=true;status("연결 중...");
+ try{
+  const endpoint=$("endpoint").value.trim();if(!endpoint)throw new Error("Worker 주소를 입력하세요.");
+  if(!endpoint.endsWith("/mcp"))throw new Error("주소 끝에 /mcp를 붙여주세요.");
+  if(!$("key").value)throw new Error("브리지 접근 키를 입력하세요.");
+  localStorage.setItem("mf_endpoint",endpoint);sessionStorage.setItem("mf_key",$("key").value);
+  sessionId=null;initialized=false;
+  const init=await rpc("initialize",{protocolVersion:"2025-03-26",capabilities:{},clientInfo:{name:"minefun-bridge-web",version:"1.0.0"}});
+  if(init?.error)throw new Error(init.error.message||"초기화 실패");
+  await rpc("notifications/initialized",{},true);initialized=true;
+  const listed=await rpc("tools/list",{});
+  if(listed?.error)throw new Error(listed.error.message||"도구 목록을 가져오지 못했습니다.");
+  tools=listed?.result?.tools||[];renderTools();status("연결됨 · "+tools.length+"개 도구","ok");output({connected:true,server:init?.result?.serverInfo,toolCount:tools.length});
+ }catch(e){status("연결 실패","bad");output("오류: "+e.message);}
+ finally{$("connect").disabled=false;}
+}
+function renderTools(){
+ $("toolCount").textContent=tools.length+"개";
+ $("tools").innerHTML="";
+ if(!tools.length){$("tools").innerHTML='<p class="hint">서버가 도구를 반환하지 않았습니다.</p>';return;}
+ tools.forEach((t,i)=>{const b=document.createElement("button");b.className="tool";const name=document.createElement("strong");name.textContent=t.name;const desc=document.createElement("small");desc.textContent=t.description||"설명 없음";b.append(name,desc);b.onclick=()=>choose(i,b);$("tools").append(b);});
+}
+function choose(i,b){selected=tools[i];document.querySelectorAll(".tool").forEach(x=>x.classList.remove("active"));b.classList.add("active");$("selectedName").textContent=selected.name;$("args").value=JSON.stringify(selected.inputSchema?.properties?Object.fromEntries(Object.entries(selected.inputSchema.properties).map(([k,v])=>[k,v.default??(v.type==="boolean"?false:v.type==="array"?[]:v.type==="object"?{}:"")])):{},null,2);$("callCard").classList.remove("hidden");$("callCard").scrollIntoView({behavior:"smooth",block:"start"});}
+async function runTool(){
+ if(!selected)return;let args;try{args=JSON.parse($("args").value||"{}");}catch(e){output("JSON 문법 오류: "+e.message);return;}
+ $("run").disabled=true;status("도구 실행 중...");
+ try{const r=await rpc("tools/call",{name:selected.name,arguments:args});output(r);status("실행 완료","ok");}
+ catch(e){output("실행 오류: "+e.message);status("실행 실패","bad");}
+ finally{$("run").disabled=false;}
+}
+$("connect").onclick=connect;$("run").onclick=runTool;$("clear").onclick=()=>output("아직 실행 결과가 없습니다.");$("forget").onclick=()=>{$("key").value="";sessionStorage.removeItem("mf_key");status("키 삭제됨");};
+</script>
+</body></html>
