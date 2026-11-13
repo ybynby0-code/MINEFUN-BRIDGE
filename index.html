@@ -40,7 +40,8 @@ main{max-width:900px;margin:auto;padding:16px 13px 35px}.panel{background:linear
 </main>
 <script>
 const $=id=>document.getElementById(id);let mcpTools=[],sid=null,rpcId=0,history=[],connected=false,busy=false;
-$("bridgeKey").value=sessionStorage.getItem("mf_bridge_key")||"";\n$("memory").value=localStorage.getItem("mf_project_memory")||"";
+$("bridgeKey").value=sessionStorage.getItem("mf_bridge_key")||"";
+$("memory").value=localStorage.getItem("mf_project_memory")||"";
 $("aiKey").value=sessionStorage.getItem("mf_ai_key")||"";
 function setStatus(t,k=""){$("status").textContent=t;$("dot").className="dot "+k}
 function addMsg(role,text){const d=document.createElement("div");d.className="msg "+role;const m=document.createElement("div");m.className="meta";m.textContent=role==="user"?"YOU":role==="ai"?"MINEFUN AI":"SYSTEM";const c=document.createElement("div");c.textContent=text;d.append(m,c);$("chat").append(d);$("chat").scrollTop=$("chat").scrollHeight;return d}
